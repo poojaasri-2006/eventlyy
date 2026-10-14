@@ -1,0 +1,335 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+generator serverClient {
+  provider = "prisma-client-js"
+  output   = "../server/node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ORGANIZER
+  VENDOR
+}
+
+model User {
+  id                      String                   @id @default(uuid())
+  email                   String                   @unique
+  password                String
+  role                    Role
+  isActive                Boolean                  @default(true)
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  organizerProfile        OrganizerProfile?
+  vendorProfile           VendorProfile?
+  messagesSent            Message[]                @relation("Sender")
+  messagesReceived        Message[]                @relation("Receiver")
+  notifications           Notification[]
+  notificationPreference  NotificationPreference?
+}
+
+model OrganizerProfile {
+  id        String      @id @default(uuid())
+  userId    String      @unique
+  user      User        @relation(fields: [userId], references: [id])
+  firstName String
+  lastName  String
+  phone     String?
+  events    Event[]
+  shortlist Shortlist[]
+  budgets   Budget[]
+  reviews   Review[]
+}
+
+model VendorProfile {
+  id             String               @id @default(uuid())
+  userId         String               @unique
+  user           User                 @relation(fields: [userId], references: [id])
+  businessName   String
+  description    String?
+  phone          String?
+  website        String?
+  imageUrl       String?
+  address        String?
+  city           String?
+  state          String?
+  postalCode     String?
+  categoryId     String?
+  category       VendorCategory?      @relation(fields: [categoryId], references: [id])
+  services       VendorService[]
+  packages       VendorPackage[]
+  availabilities VendorAvailability[]
+  inquiries      VendorInquiry[]
+  quotes         Quote[]
+  reviews        Review[]
+  verification   VendorVerification?
+  documents      VendorDocument[]
+}
+
+enum AuthenticityAssessment {
+  LIKELY_GENUINE
+  NEEDS_REVIEW
+  POTENTIALLY_FAKE
+  UNABLE_TO_VERIFY
+}
+
+enum VerificationStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+enum OrganizerDecisionStatus {
+  PENDING
+  REVIEWED
+  APPROVED
+  INFO_REQUESTED
+  REJECTED
+}
+
+model VendorVerification {
+  id                    String                   @id @default(uuid())
+  vendorId              String                   @unique
+  vendor                VendorProfile            @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  status                VerificationStatus       @default(NOT_STARTED)
+  assessment            AuthenticityAssessment   @default(UNABLE_TO_VERIFY)
+  score                 Int                      @default(0) // 0 - 100 confidence/evidence score
+  summary               String?
+  reasons               String[]                 // Explanations for the assessment
+  missingEvidence       String[]                 // Missing evidence identified
+  suspiciousIndicators  String[]                 // Suspicious indicators found
+  checks                Json                     // Individual check details with status, label, explanation
+  extractedData         Json?                    // Data extracted from website & evidence
+  isStale               Boolean                  @default(false)
+  lastCheckedAt         DateTime?
+  lastCompletedAt       DateTime?
+  startedAt             DateTime?
+  errorMessage          String?
+  
+  // Organizer review/action state
+  decisionStatus        OrganizerDecisionStatus  @default(PENDING)
+  decisionReason        String?
+  decisionAt            DateTime?
+  decidedByOrganizerId  String?
+  
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+  actions               VendorVerificationAction[]
+}
+
+model VendorVerificationAction {
+  id                    String                   @id @default(uuid())
+  verificationId        String
+  verification          VendorVerification       @relation(fields: [verificationId], references: [id], onDelete: Cascade)
+  organizerId           String
+  actionType            String                   // REVIEWED, APPROVED, INFO_REQUESTED, REJECTED, REFRESH_TRIGGERED
+  reason                String?
+  notes                 String?
+  createdAt             DateTime                 @default(now())
+}
+
+model VendorDocument {
+  id                    String                   @id @default(uuid())
+  vendorId              String
+  vendor                VendorProfile            @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  type                  String                   // BUSINESS_REGISTRATION, CERTIFICATE, PORTFOLIO, ID, OTHER
+  title                 String
+  fileUrl               String?
+  externalUrl           String?
+  registrationNumber    String?
+  issuingAuthority      String?
+  isVerified            Boolean                  @default(false)
+  notes                 String?
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+}
+
+model VendorCategory {
+  id          String          @id @default(uuid())
+  name        String          @unique
+  description String?
+  vendors     VendorProfile[]
+  services    VendorService[]
+  packages    VendorPackage[]
+}
+
+model Event {
+  id             String             @id @default(uuid())
+  organizerId    String
+  organizer      OrganizerProfile   @relation(fields: [organizerId], references: [id])
+  title          String
+  description    String?
+  date           DateTime?
+  location       String?
+  status         String             @default("DRAFT") // DRAFT, PUBLISHED, COMPLETED, CANCELLED
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  requirements   EventRequirement[]
+  shortlists     Shortlist[]
+  inquiries      VendorInquiry[]
+  bookings       Booking[]
+  budget         Budget?
+}
+
+model EventRequirement {
+  id          String  @id @default(uuid())
+  eventId     String
+  event       Event   @relation(fields: [eventId], references: [id])
+  title       String
+  description String?
+  category    String?
+  status      String  @default("PENDING") // PENDING, COMPLETED
+}
+
+model VendorService {
+  id          String          @id @default(uuid())
+  vendorId    String
+  vendor      VendorProfile   @relation(fields: [vendorId], references: [id])
+  name        String
+  description String?
+  price       Float?
+  pricingType String?         @default("FLAT_RATE")
+  categoryId  String?
+  category    VendorCategory? @relation(fields: [categoryId], references: [id])
+  packages    VendorPackage[]
+}
+
+model VendorPackage {
+  id          String          @id @default(uuid())
+  vendorId    String
+  vendor      VendorProfile   @relation(fields: [vendorId], references: [id])
+  name        String
+  description String?
+  price       Float
+  categoryId  String?
+  category    VendorCategory? @relation(fields: [categoryId], references: [id])
+  services    VendorService[]
+}
+
+model VendorAvailability {
+  id        String        @id @default(uuid())
+  vendorId  String
+  vendor    VendorProfile @relation(fields: [vendorId], references: [id])
+  date      DateTime
+  isBlocked Boolean       @default(false)
+  startTime String?
+  endTime   String?
+  reason    String?
+}
+
+model Shortlist {
+  id          String           @id @default(uuid())
+  organizerId String
+  organizer   OrganizerProfile @relation(fields: [organizerId], references: [id])
+  eventId     String
+  event       Event            @relation(fields: [eventId], references: [id])
+  vendorId    String
+}
+
+model VendorInquiry {
+  id        String        @id @default(uuid())
+  eventId   String
+  event     Event         @relation(fields: [eventId], references: [id])
+  vendorId  String
+  vendor    VendorProfile @relation(fields: [vendorId], references: [id])
+  message   String
+  status    String        @default("PENDING") // PENDING, RESPONDED, DECLINED
+  createdAt DateTime      @default(now())
+}
+
+model Quote {
+  id          String        @id @default(uuid())
+  vendorId    String
+  vendor      VendorProfile @relation(fields: [vendorId], references: [id])
+  inquiryId   String
+  details     String
+  totalAmount Float
+  status      String        @default("PENDING") // PENDING, ACCEPTED, REJECTED
+  createdAt   DateTime      @default(now())
+}
+
+model Booking {
+  id        String   @id @default(uuid())
+  eventId   String
+  event     Event    @relation(fields: [eventId], references: [id])
+  quoteId   String   @unique
+  status    String   @default("CONFIRMED") // CONFIRMED, CANCELLED, COMPLETED
+  createdAt DateTime @default(now())
+  review    Review?
+}
+
+model Message {
+  id         String   @id @default(uuid())
+  senderId   String
+  sender     User     @relation("Sender", fields: [senderId], references: [id])
+  receiverId String
+  receiver   User     @relation("Receiver", fields: [receiverId], references: [id])
+  content    String
+  createdAt  DateTime @default(now())
+}
+
+model Notification {
+  id         String          @id @default(uuid())
+  userId     String
+  user       User            @relation(fields: [userId], references: [id])
+  type       String          @default("GENERAL") // GENERAL, INQUIRY_RESPONSE, QUOTE_SUBMITTED, QUOTE_UPDATED, BOOKING_UPDATED
+  title      String
+  content    String
+  isRead     Boolean         @default(false)
+  createdAt  DateTime        @default(now())
+  eventId    String?
+  inquiryId  String?
+  quoteId    String?
+  bookingId  String?
+}
+
+model NotificationPreference {
+  id                  String   @id @default(uuid())
+  userId              String   @unique
+  user                User     @relation(fields: [userId], references: [id])
+  eventUpdates        Boolean  @default(true)
+  vendorActivity      Boolean  @default(true)
+  quotesAndBookings   Boolean  @default(true)
+  generalSystem       Boolean  @default(true)
+  updatedAt           DateTime @updatedAt
+}
+
+model Review {
+  id          String            @id @default(uuid())
+  vendorId    String
+  vendor      VendorProfile     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  organizerId String?
+  organizer   OrganizerProfile? @relation(fields: [organizerId], references: [id], onDelete: SetNull)
+  bookingId   String?           @unique
+  booking     Booking?          @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  title       String?
+  rating      Int               // 1 to 5
+  comment     String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+}
+
+model Budget {
+  id          String           @id @default(uuid())
+  eventId     String           @unique
+  event       Event            @relation(fields: [eventId], references: [id])
+  organizerId String
+  organizer   OrganizerProfile @relation(fields: [organizerId], references: [id])
+  totalBudget Float
+  items       BudgetItem[]
+}
+
+model BudgetItem {
+  id          String  @id @default(uuid())
+  budgetId    String
+  budget      Budget  @relation(fields: [budgetId], references: [id])
+  category    String
+  amount      Float
+  description String?
+}
